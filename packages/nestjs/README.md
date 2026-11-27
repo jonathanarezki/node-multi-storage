@@ -9,8 +9,8 @@ This package is a thin NestJS wrapper around [`@webbar/node-multi-storage`](http
 
 ## Requirements
 
-- Node.js >= 22
-- NestJS 11 (`@nestjs/common` and `@nestjs/core` `^11.0.0`)
+- Node.js >= 22.12 (Nest 12 is ESM-only and loaded with `require()`, which needs Node 22.12 or newer)
+- NestJS 11 or 12 (`@nestjs/common` and `@nestjs/core` `^11.0.0 || ^12.0.0`)
 
 ## Installation
 

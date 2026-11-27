@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { CreateBucketCommand, DeleteBucketCommand } from '@aws-sdk/client-s3';
-import { Injectable, Module } from '@nestjs/common';
+import { Injectable, Logger, Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
@@ -567,6 +567,19 @@ describe('multi-disk: lifecycle errors', () => {
       imports: [StorageModule.forRoot({ default: names[0], disks: Object.fromEntries(names.map((n) => [n, memory])) })],
     }).compile();
   const driverOf = (storage: StorageService, name: string) => (storage.disk(name) as any).source.get();
+  // Nest 11 rejects close() with the error of onModuleDestroy; Nest 12 logs it with Logger.error and resolves.
+  // Either way the error must be reported, and the message of the first one is returned.
+  const closeAndGetError = async (moduleRef: { close(): Promise<void> }): Promise<string | undefined> => {
+    const logged = jest.spyOn(Logger, 'error').mockImplementation(() => undefined);
+    try {
+      await moduleRef.close();
+      return logged.mock.calls.map(([error]) => (error as Error)?.message).find((message) => message);
+    } catch (error) {
+      return (error as Error).message;
+    } finally {
+      logged.mockRestore();
+    }
+  };
 
   it('an init failure on one disk fails the app init', async () => {
     const moduleRef = await build();
@@ -587,7 +600,7 @@ describe('multi-disk: lifecycle errors', () => {
     destroy.b.mockRejectedValue(new Error('destroy of b failed'));
     destroy.c.mockRejectedValue(new Error('destroy of c failed'));
 
-    await expect(moduleRef.close()).rejects.toThrow('destroy of b failed');
+    expect(await closeAndGetError(moduleRef)).toBe('destroy of b failed');
     for (const spy of Object.values(destroy)) {
       expect(spy).toHaveBeenCalledTimes(1);
     }
@@ -600,7 +613,7 @@ describe('multi-disk: lifecycle errors', () => {
     const destroyA = jest.spyOn(driverOf(storage, 'a'), 'destroy');
     const destroyC = jest.spyOn(driverOf(storage, 'c'), 'destroy');
     jest.spyOn(driverOf(storage, 'b'), 'destroy').mockRejectedValue(new Error('only b'));
-    await expect(moduleRef.close()).rejects.toThrow('only b');
+    expect(await closeAndGetError(moduleRef)).toBe('only b');
     expect(destroyA).toHaveBeenCalledTimes(1);
     expect(destroyC).toHaveBeenCalledTimes(1);
   });

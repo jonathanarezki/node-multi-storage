@@ -9,7 +9,8 @@
       {
         "tsconfig": "<rootDir>/tsconfig.json"
       }
-    ]
+    ],
+    "node_modules/@nestjs/.+\\.js$": "<rootDir>/support/esm-to-cjs-transformer.js"
   },
   "globalSetup": "<rootDir>/support/global-setup.ts",
   "globalTeardown": "<rootDir>/support/global-teardown.ts",
@@ -19,5 +20,6 @@
     "^@webbar/node-multi-storage$": "<rootDir>/../packages/core/src",
     "^@webbar/node-multi-storage/testing$": "<rootDir>/../packages/core/src/testing",
     "^nestjs-multi-storage$": "<rootDir>/../packages/nestjs/src"
-  }
+  },
+  "transformIgnorePatterns": ["node_modules/(?!@nestjs/)"]
 }

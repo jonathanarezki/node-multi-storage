@@ -80,7 +80,7 @@ jobs:
           echo "any_publish=$any_publish" >> "$GITHUB_OUTPUT"
 
   test:
-    name: Test on Node ${{ matrix.node }}
+    name: Test on Node ${{ matrix.node }} with Nest ${{ matrix.nest }}
     needs: meta
     if: needs.meta.outputs.any_publish == 'true'
     runs-on: ubuntu-latest
@@ -89,7 +89,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [22, 24]
+        node: ['22.12', 24] # 22.12 is the minimum Node of nestjs-multi-storage (require(esm) for Nest 12)
+        nest: [12, 11] # 12 is what package.json installs; 11 is swapped in below
 
     steps:
       - name: Checkout code
@@ -102,6 +103,10 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Use Nest ${{ matrix.nest }}
+        if: matrix.nest != 12
+        run: npm install --no-save @nestjs/common@${{ matrix.nest }} @nestjs/core@${{ matrix.nest }} @nestjs/testing@${{ matrix.nest }}
 
       - name: Lint
         # Without --fix, so formatting problems fail the build instead of being fixed silently

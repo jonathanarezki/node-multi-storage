@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file. The format is b
 
 Releases before 0.5.0 are listed on the [GitHub releases page](https://github.com/jonathanarezki/node-multi-storage/releases).
 
+## [0.9.0] - 2026-11-27
+
+Adds NestJS 12 support. The public API is identical to 0.8.0 and the same build works on NestJS 11 and 12.
+
+### Added
+
+- NestJS 12 support: the peer dependencies are now `@nestjs/common` and `@nestjs/core` `^11.0.0 || ^12.0.0`. NestJS 11 is still supported.
+
+### Changed
+
+- **BREAKING:** The minimum Node.js version is now 22.12 (was 22). The package is still CommonJS; NestJS 12 is ESM-only and is loaded with `require()`, which is enabled by default from Node 22.12 (and 20.19). On earlier 22.x releases, loading NestJS 12 fails with `ERR_REQUIRE_ESM`.
+- With NestJS 12, an error thrown while a disk is destroyed (`onModuleDestroy`) is logged by Nest and no longer makes `app.close()` reject, which is how NestJS 12 treats every `onModuleDestroy` hook. All disks are still destroyed. NestJS 11 behaves as before.
+
 ## [0.8.0] - 2026-11-03
 
 ### Upgrading from 0.7.x
