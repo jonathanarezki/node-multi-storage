@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { Readable } from 'stream';
-import { StorageModuleOptions } from '../interfaces';
+import { Readable, Writable } from 'stream';
+import { StorageCreateWriteStreamOptions, StorageModuleOptions } from '../interfaces';
 import {
   DriverMkdirOptions,
   DriverReaddirOptions,
@@ -69,6 +69,10 @@ export class MemoryDriver extends FileSystemDriver {
 
   createReadStream(filePath: string, options: DriverReadStreamOptions): Readable {
     return this.memReadStream(this.fsPath(filePath), options);
+  }
+
+  createWriteStream(filePath: string, options: StorageCreateWriteStreamOptions): Writable {
+    return this.closeAfterOpenError(super.createWriteStream(filePath, options));
   }
 
   private memStat(p: string) {
@@ -149,6 +153,33 @@ export class MemoryDriver extends FileSystemDriver {
       return failing;
     }
     const fixed = typeof end === 'number' && start === undefined ? { ...options, start: 0 } : options;
-    return this.fs.createReadStream(full, defined(fixed)) as Readable;
+    return this.closeAfterOpenError(this.fs.createReadStream(full, defined(fixed)) as Readable);
+  }
+
+  /**
+   * memfs never emits `'close'` when a stream fails to open (ENOENT, EISDIR, ...): it destroys the stream before it
+   * has a file descriptor, and the close it waits for needs an `'open'` that never comes, so anything waiting for
+   * `'close'` or `'finish'` hangs. Node's fs emits `'error'` and then `'close'`: until the stream is open, finish its
+   * destruction on the `'error'` (open failed) or, as memfs does, on the `'open'` (destroyed early, close the fd).
+   */
+  private closeAfterOpenError<S extends Readable | Writable>(stream: S): S {
+    const memfsDestroy = stream._destroy;
+    let opened = false;
+    stream.once('open', () => (opened = true));
+    stream._destroy = (error, callback) => {
+      if (opened) return memfsDestroy.call(stream, error, callback);
+      const onOpen = () => {
+        stream.off('error', onError);
+        memfsDestroy.call(stream, error, callback);
+      };
+      const onError = (openError: Error) => {
+        stream.off('open', onOpen);
+        callback(error);
+        // this listener must not swallow an error nobody else listens to
+        if (stream.listenerCount('error') === 0) throw openError;
+      };
+      stream.once('open', onOpen).once('error', onError);
+    };
+    return stream;
   }
 }

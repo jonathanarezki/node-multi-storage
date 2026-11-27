@@ -183,6 +183,28 @@ describeMemory('memory backend', () => {
     await moduleRef.close();
   });
 
+  it('a write stream that cannot open emits error, then close once (memfs never closes it)', async () => {
+    const { moduleRef, service } = await createModule();
+    await service.mkdir('folder');
+    for (const target of ['folder', 'no-such-folder/x.txt']) {
+      const stream = service.createWriteStream(target);
+      const events: string[] = [];
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`no close for ${target}: ${events}`)), 2000);
+        stream.on('error', (e: NodeJS.ErrnoException) => events.push(`error:${e.code}`));
+        stream.on('close', () => {
+          events.push('close');
+          clearTimeout(timer);
+          setTimeout(resolve, 50);
+        });
+        stream.end('x');
+      });
+      expect(events).toEqual([target === 'folder' ? 'error:EISDIR' : 'error:ENOENT', 'close']);
+      expect(stream.destroyed).toBe(true);
+    }
+    await moduleRef.close();
+  });
+
   describe('signed URLs', () => {
     it('are not supported (ERR_STORAGE_NOT_SUPPORTED)', async () => {
       const { moduleRef, service } = await createModule();

@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file. The format is b
 
 The history before 0.7.0 is in the [nestjs-multi-storage changelog](https://github.com/jonathanarezki/node-multi-storage/blob/main/packages/nestjs/CHANGELOG.md): this package was extracted from nestjs-multi-storage 0.6.0, and the file API, backends, options and errors have the same behaviour there.
 
+## [0.8.1] - 2026-11-27
+
+### Fixed
+
+- Memory backend: `createReadStream` and `createWriteStream` now emit `'close'` after `'error'` when the file cannot be opened (missing file, a folder, a missing parent folder), like Node's `fs`. memfs never did, so anything waiting for `'close'` or `'finish'` hung forever, for example a NestJS `StreamableFile(disk.createReadStream('missing'))` download on a memory disk never responded. The error object is unchanged.
+
+### Added
+
+- Conformance kit (`@webbar/node-multi-storage/testing`): a new test checks that `createReadStream` of a missing file emits `'error'` and then `'close'` exactly once and ends up destroyed. A custom driver whose stream never emits `'close'` after an error will now fail it.
+
 ## [0.8.0] - 2026-11-03
 
 ### Upgrading from 0.7.x

@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
 import * as fs from 'node:fs';
+import { Readable, Writable } from 'node:stream';
 import { types } from 'node:util';
 import { StorageDisk } from '../storage-disk';
 
@@ -70,6 +71,24 @@ function writeThrough(disk: StorageDisk, p: string, chunks: Array<string | Buffe
     for (const chunk of chunks.slice(0, -1)) stream.write(chunk);
     stream.end(chunks[chunks.length - 1]);
   });
+}
+
+/** Collects the `'error'`/`'close'` events of a stream; fails after 2s if `'close'` never comes, instead of hanging. */
+async function settle(stream: Readable | Writable) {
+  const names: string[] = [];
+  stream.on('error', () => names.push('error')).on('close', () => names.push('close'));
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`no 'close' after 2s, events: ${names.join(', ') || 'none'}`)),
+      2000,
+    );
+    stream.once('close', () => {
+      clearTimeout(timer);
+      // a late duplicate event would show up here
+      setTimeout(resolve, 50);
+    });
+  });
+  return { names, destroyed: stream.destroyed };
 }
 
 export const GROUPS: ConformanceGroup[] = [
@@ -593,6 +612,11 @@ export const GROUPS: ConformanceGroup[] = [
       });
       test('createReadStream of a missing file emits ENOENT as an error event', async (disk) => {
         await rejectsWith(collect(disk.createReadStream('missing.txt')), 'ENOENT');
+      });
+      test('createReadStream of a missing file: close is emitted after the error, once, and the stream is destroyed', async (disk) => {
+        const events = await settle(disk.createReadStream('missing.txt'));
+        assert.deepEqual(events.names, ['error', 'close']);
+        assert.equal(events.destroyed, true);
       });
       test('createReadStream rejects start > end synchronously (ERR_OUT_OF_RANGE)', async (disk) => {
         assert.throws(() => disk.createReadStream('a.txt', { start: 5, end: 1 }), { code: 'ERR_OUT_OF_RANGE' });
