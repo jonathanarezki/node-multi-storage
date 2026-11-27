@@ -72,7 +72,7 @@ export class MemoryDriver extends FileSystemDriver {
   }
 
   createWriteStream(filePath: string, options: StorageCreateWriteStreamOptions): Writable {
-    return this.closeAfterOpenError(super.createWriteStream(filePath, options));
+    return this.fixStreamLifecycle(super.createWriteStream(filePath, options));
   }
 
   private memStat(p: string) {
@@ -153,24 +153,39 @@ export class MemoryDriver extends FileSystemDriver {
       return failing;
     }
     const fixed = typeof end === 'number' && start === undefined ? { ...options, start: 0 } : options;
-    return this.closeAfterOpenError(this.fs.createReadStream(full, defined(fixed)) as Readable);
+    return this.fixStreamLifecycle(this.fs.createReadStream(full, defined(fixed)) as Readable);
   }
 
   /**
-   * memfs never emits `'close'` when a stream fails to open (ENOENT, EISDIR, ...): it destroys the stream before it
-   * has a file descriptor, and the close it waits for needs an `'open'` that never comes, so anything waiting for
-   * `'close'` or `'finish'` hangs. Node's fs emits `'error'` and then `'close'`: until the stream is open, finish its
-   * destruction on the `'error'` (open failed) or, as memfs does, on the `'open'` (destroyed early, close the fd).
+   * Two lifecycle quirks of memfs streams, fixed on the instance so that they close like Node's fs streams (`'error'`
+   * or `'end'`/`'finish'`, then a single `'close'`, then destroyed):
+   * - memfs closes the file itself and emits `'close'` by hand (in `close()`, also on `'finish'`), and Node's
+   *   `autoDestroy` emits it again: `'close'` came twice, and before `'error'` when a stream is destroyed with one.
+   *   `close()` now only destroys the stream, and `_destroy` closes the file and leaves the one `'close'` to Node.
+   * - when a stream fails to open (ENOENT, EISDIR, ...) memfs destroys it before it has a file descriptor, and the
+   *   close it then waits for needs an `'open'` that never comes, so no `'close'` was emitted at all and anything
+   *   waiting for `'close'` or `'finish'` hung. Until the stream is open, its destruction now finishes on the
+   *   `'error'` (open failed) or on the `'open'` (destroyed early: close the descriptor).
    */
-  private closeAfterOpenError<S extends Readable | Writable>(stream: S): S {
-    const memfsDestroy = stream._destroy;
+  private fixStreamLifecycle<S extends Readable | Writable>(stream: S): S {
+    const memStream = stream as S & { fd: number | null; close(callback?: () => void): void };
+    memStream.close = (callback) => {
+      if (callback) stream.once('close', callback);
+      stream.destroy();
+    };
+    const closeFile = (error: Error | null, callback: (error?: Error | null) => void) => {
+      const fd = memStream.fd;
+      memStream.fd = null;
+      if (typeof fd !== 'number') return callback(error);
+      this.fs.close(fd, (closeError) => callback(error ?? closeError));
+    };
     let opened = false;
     stream.once('open', () => (opened = true));
     stream._destroy = (error, callback) => {
-      if (opened) return memfsDestroy.call(stream, error, callback);
+      if (opened) return closeFile(error, callback);
       const onOpen = () => {
         stream.off('error', onError);
-        memfsDestroy.call(stream, error, callback);
+        closeFile(error, callback);
       };
       const onError = (openError: Error) => {
         stream.off('open', onOpen);

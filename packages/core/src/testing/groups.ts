@@ -73,10 +73,12 @@ function writeThrough(disk: StorageDisk, p: string, chunks: Array<string | Buffe
   });
 }
 
-/** Collects the `'error'`/`'close'` events of a stream; fails after 2s if `'close'` never comes, instead of hanging. */
+/** Collects the `'end'`/`'finish'`/`'error'`/`'close'` events of a stream (a read stream is drained); fails after 2s if `'close'` never comes, instead of hanging. */
 async function settle(stream: Readable | Writable) {
   const names: string[] = [];
+  for (const name of ['end', 'finish']) stream.on(name, () => names.push(name));
   stream.on('error', () => names.push('error')).on('close', () => names.push('close'));
+  if (stream instanceof Readable) stream.resume();
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error(`no 'close' after 2s, events: ${names.join(', ') || 'none'}`)),
@@ -618,6 +620,16 @@ export const GROUPS: ConformanceGroup[] = [
         assert.deepEqual(events.names, ['error', 'close']);
         assert.equal(events.destroyed, true);
       });
+      test('createReadStream: close is emitted once, after end, when the file was read completely', async (disk) => {
+        await put(disk, 's.txt', 'some content');
+        const events = await settle(disk.createReadStream('s.txt'));
+        // a remote backend may hand out a stream that also emits 'finish' (a PassThrough): only 'end' and 'close' count
+        assert.deepEqual(
+          events.names.filter((name) => name !== 'finish'),
+          ['end', 'close'],
+        );
+        assert.equal(events.destroyed, true);
+      });
       test('createReadStream rejects start > end synchronously (ERR_OUT_OF_RANGE)', async (disk) => {
         assert.throws(() => disk.createReadStream('a.txt', { start: 5, end: 1 }), { code: 'ERR_OUT_OF_RANGE' });
       });
@@ -638,6 +650,13 @@ export const GROUPS: ConformanceGroup[] = [
         assert.equal(finishes, 1);
         assert.equal(await seen, 'hello world');
         assert.equal(await text(disk, 'w.txt'), 'hello world');
+      });
+      test('createWriteStream: close is emitted once, after finish', async (disk) => {
+        const stream = disk.createWriteStream('w.txt');
+        stream.end('content');
+        const events = await settle(stream);
+        assert.deepEqual(events.names, ['finish', 'close']);
+        assert.equal(events.destroyed, true);
       });
       test('createWriteStream: binary chunks, many of them, and an empty stream', async (disk) => {
         const chunk = Buffer.from(Array.from({ length: 256 }, (_, i) => i));

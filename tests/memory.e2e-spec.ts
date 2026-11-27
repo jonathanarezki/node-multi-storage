@@ -205,6 +205,67 @@ describeMemory('memory backend', () => {
     await moduleRef.close();
   });
 
+  describe('stream close events (memfs emits close twice)', () => {
+    /** Records the events of a stream until 50ms after its first 'close', so that a duplicate would show up. */
+    async function events(stream: NodeJS.ReadableStream | NodeJS.WritableStream, act: () => void) {
+      const names: string[] = [];
+      for (const name of ['end', 'finish', 'error', 'close']) stream.on(name, () => names.push(name));
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`no close: ${names}`)), 2000);
+        stream.once('close', () => {
+          clearTimeout(timer);
+          setTimeout(resolve, 50);
+        });
+        act();
+      });
+      return names;
+    }
+
+    it('a read stream destroyed before it is open emits close once', async () => {
+      const { moduleRef, service } = await createModule({ files: { 'a.txt': 'abcdefghij' } });
+      const stream = service.createReadStream('a.txt');
+      expect(await events(stream, () => stream.destroy())).toEqual(['close']);
+      expect(stream.destroyed && stream.closed).toBe(true);
+      await moduleRef.close();
+    });
+
+    it('a read stream destroyed before it is open with an error emits error, then close once', async () => {
+      const { moduleRef, service } = await createModule({ files: { 'a.txt': 'abcdefghij' } });
+      const stream = service.createReadStream('a.txt');
+      const failure = new Error('stop');
+      const seen: unknown[] = [];
+      stream.on('error', (e) => seen.push(e));
+      expect(await events(stream, () => stream.destroy(failure))).toEqual(['error', 'close']);
+      expect(seen).toEqual([failure]);
+      await moduleRef.close();
+    });
+
+    it('a read stream destroyed half way emits close once', async () => {
+      const { moduleRef, service } = await createModule({ files: { 'a.txt': 'abcdefghij' } });
+      const stream = service.createReadStream('a.txt', { highWaterMark: 2 });
+      expect(await events(stream, () => stream.once('data', () => stream.destroy()))).toEqual(['close']);
+      expect(stream.destroyed && stream.closed).toBe(true);
+      await moduleRef.close();
+    });
+
+    it('a write stream destroyed before it is open emits close once', async () => {
+      const { moduleRef, service } = await createModule();
+      const stream = service.createWriteStream('w.txt');
+      expect(await events(stream, () => stream.destroy())).toEqual(['close']);
+      expect(stream.destroyed && stream.closed).toBe(true);
+      await moduleRef.close();
+    });
+
+    it('a read of a folder emits error, then close once', async () => {
+      const { moduleRef, service } = await createModule();
+      await service.mkdir('folder');
+      const stream = service.createReadStream('folder');
+      stream.on('error', () => undefined);
+      expect(await events(stream, () => stream.resume())).toEqual(['error', 'close']);
+      await moduleRef.close();
+    });
+  });
+
   describe('signed URLs', () => {
     it('are not supported (ERR_STORAGE_NOT_SUPPORTED)', async () => {
       const { moduleRef, service } = await createModule();

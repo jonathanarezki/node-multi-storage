@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file. The format is b
 
 The history before 0.7.0 is in the [nestjs-multi-storage changelog](https://github.com/jonathanarezki/node-multi-storage/blob/main/packages/nestjs/CHANGELOG.md): this package was extracted from nestjs-multi-storage 0.6.0, and the file API, backends, options and errors have the same behaviour there.
 
+## [0.8.2] - 2026-11-27
+
+### Fixed
+
+- Memory backend: `createReadStream` and `createWriteStream` emitted `'close'` twice when a stream finished (`'end'`/`'finish'`) or was destroyed, and before `'error'` when it was destroyed with one. Node's `fs` emits it once, after `'end'`/`'finish'` or `'error'`, and the memory streams now do the same. memfs emitted it by hand when it closed the file, and Node emitted it again when the stream was destroyed.
+
+### Added
+
+- Conformance kit (`@webbar/node-multi-storage/testing`): new tests check that a completely read `createReadStream` emits `'end'` and then `'close'` once, and that a `createWriteStream` emits `'finish'` and then `'close'` once. A custom driver whose streams emit `'close'` twice or not at all will now fail them.
+
 ## [0.8.1] - 2026-11-27
 
 ### Fixed

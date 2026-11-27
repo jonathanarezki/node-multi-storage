@@ -1,6 +1,6 @@
 {
   "name": "@webbar/node-multi-storage",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "A framework-agnostic multi-storage filesystem manager for Node with an fs-compatible API (filesystem, S3, memory, FTP, SFTP)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
